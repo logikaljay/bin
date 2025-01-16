@@ -1,0 +1,57 @@
+#!/bin/bash
+
+# Check if both arguments were provided
+if [ $# -ne 2 ]; then
+    echo "Usage: $0 <server_address> <file_to_upload>"
+    echo "Example: $0 10.1.1.161 myfile.mp4"
+    exit 1
+fi
+
+SERVER_ADDRESS="$1"
+FILE_PATH="$2"
+
+# Validate server address format (basic check)
+if [[ ! "$SERVER_ADDRESS" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Error: Invalid server address format. Please use IPv4 format (e.g., 10.1.1.161)"
+    exit 1
+fi
+
+# Check if the file exists
+if [ ! -f "$FILE_PATH" ]; then
+    echo "Error: File '$FILE_PATH' does not exist"
+    exit 1
+fi
+
+echo "Uploading $(basename "$FILE_PATH") to $SERVER_ADDRESS..."
+
+# Create a named pipe for progress output
+PROGRESS_PIPE=$(mktemp -u)
+mkfifo "$PROGRESS_PIPE"
+
+# Start curl with progress output redirected to the pipe
+curl -X POST \
+     -H "Content-Type: multipart/form-data" \
+     -F "file=@$FILE_PATH" \
+     --progress-bar \
+     --stderr "$PROGRESS_PIPE" \
+     "http://$SERVER_ADDRESS/upload.json" > /dev/null &
+
+CURL_PID=$!
+
+# Read from the pipe and display progress
+cat "$PROGRESS_PIPE" &
+
+# Wait for curl to finish
+wait $CURL_PID
+status=$?
+
+# Clean up the pipe
+rm "$PROGRESS_PIPE"
+
+if [ $status -ne 0 ]; then
+    echo "Error: Upload failed"
+    exit 1
+fi
+
+echo -e "\nUpload complete!"
+exit 0
